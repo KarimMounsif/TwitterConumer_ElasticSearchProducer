@@ -15,6 +15,9 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
@@ -26,12 +29,7 @@ public class TwitterProducer {
 
     Logger logger = LoggerFactory.getLogger(TwitterProducer.class.getName());
 
-    private String consumerKey = "6bQtlIb3qvZjDF3YIhpRHS4jH";
-    private String consumerSecret = "WdEnvxsouQrXhhriiM3RId0PIPZ8VKTRGmlXCixu0BhLZceWBs";
-    private String token = "360796269-muTieytnEjZrf35VX4hvmq174Xs1vio1EoW7wwdz";
-    private String secret = "O9jt3PHSA4kQi57ssKvcrst4W6zSGXfcfLTRv2btqCWs7";
-
-    List<String> terms = Lists.newArrayList("karim");
+    List<String> terms = Lists.newArrayList("amazon", "jobs", "Paris");
 
     public TwitterProducer(){}
 
@@ -53,14 +51,14 @@ public class TwitterProducer {
         //create a kafka producer
         KafkaProducer<String, String> producer = createKafkaProducer();
 
-        //Shutdown hook
-        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-            public void run() {
-                logger.info("Stopping application...");
-                logger.info("Shutting down client from twitter...");
-                client.stop();
-                logger.info("closing producer...");
-                logger.info("producer closed!");
+
+                logger.info("producer closed!");  //Shutdown hook
+                Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                    public void run() {
+                        logger.info("Stopping application...");
+                        logger.info("Shutting down client from twitter...");
+                        client.stop();
+                        logger.info("closing producer...");
             }
         }));
 
@@ -99,9 +97,13 @@ public class TwitterProducer {
 
         hosebirdEndpoint.trackTerms(terms);
 
-        // These secrets should be read from a config file
-        Authentication hosebirdAuth = new OAuth1(consumerKey, consumerSecret, token, secret);
+        String consumerKey = getAuthCredential("consumerKey");
+        String consumerSecret = getAuthCredential("consumerSecret");
+        String token = getAuthCredential("token");
+        String secret = getAuthCredential("secret");
 
+        logger.debug("consumerKey: " + consumerKey + " consumerSecret: " + consumerSecret + "token: " + token);
+        Authentication hosebirdAuth = new OAuth1(consumerKey, consumerSecret, token, secret);
 
         ClientBuilder builder = new ClientBuilder()
                 .name("Hosebird-Client-01")                              // optional: mainly for the logs
@@ -124,16 +126,50 @@ public class TwitterProducer {
         properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-        //create safe producer
+        //create safe producer/Idempotent Producer
         properties.setProperty(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
         properties.setProperty(ProducerConfig.ACKS_CONFIG, "all");
         properties.setProperty(ProducerConfig.RETRIES_CONFIG, Integer.toString(Integer.MAX_VALUE));
         properties.setProperty(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
+
+        //High throughput producer (++ bit latency /CPU Usage)
+        properties.setProperty(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy");
+        properties.setProperty(ProducerConfig.LINGER_MS_CONFIG, "20");
+        properties.setProperty(ProducerConfig.BATCH_SIZE_CONFIG, Integer.toString(32*1024));
+
 
 
         //create the producer
         KafkaProducer<String, String> producer = new KafkaProducer<String, String>(properties);
 
         return producer;
+    }
+
+    public String getAuthCredential(String key){
+
+        Properties prop = new Properties();
+        InputStream input = null;
+        String credential = "";
+        try {
+
+            input = new FileInputStream("Auth.properties");
+
+            // load a properties file
+            prop.load(input);
+            // get the property value and return it
+            credential = prop.getProperty(key);
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        } finally {
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return credential;
     }
 }
